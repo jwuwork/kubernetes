@@ -15,26 +15,16 @@ limitations under the License.
 */
 
 // A set of common functions needed by cmd/kubectl and pkg/kubectl packages.
+
 package kubectl
 
 import (
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
-func AddJsonFilenameFlag(cmd *cobra.Command, value *util.StringList, usage string) {
-	annotations := []string{"json", "yaml", "yml"}
-	annotation := make(map[string][]string)
-	annotation[cobra.BashCompFilenameExt] = annotations
+func AddJsonFilenameFlag(cmd *cobra.Command, usage string) {
+	cmd.Flags().StringSliceP("filename", "f", []string{}, usage)
 
-	flag := &pflag.Flag{
-		Name:        "filename",
-		Shorthand:   "f",
-		Usage:       usage,
-		Value:       value,
-		DefValue:    value.String(),
-		Annotations: annotation,
-	}
-	cmd.Flags().AddFlag(flag)
+	annotations := []string{"json", "yaml", "yml"}
+	cmd.Flags().SetAnnotation("filename", cobra.BashCompFilenameExt, annotations)
 }

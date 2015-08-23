@@ -27,8 +27,16 @@ ALLOCATE_NODE_CIDRS=true
 NODE_INSTANCE_PREFIX="${INSTANCE_PREFIX}-minion"
 ASG_NAME="${NODE_INSTANCE_PREFIX}-group"
 
+# We could allow the master disk volume id to be specified in future
+MASTER_DISK_ID=
+
+# Defaults: ubuntu -> vivid
+if [[ "${KUBE_OS_DISTRIBUTION}" == "ubuntu" ]]; then
+  KUBE_OS_DISTRIBUTION=vivid
+fi
+
 case "${KUBE_OS_DISTRIBUTION}" in
-  ubuntu|wheezy|coreos)
+  trusty|wheezy|jessie|vivid|coreos)
     source "${KUBE_ROOT}/cluster/aws/${KUBE_OS_DISTRIBUTION}/util.sh"
     ;;
   *)
@@ -55,7 +63,9 @@ MINION_SG_NAME="kubernetes-minion-${CLUSTER_ID}"
 # Be sure to map all the ephemeral drives.  We can specify more than we actually have.
 # TODO: Actually mount the correct number (especially if we have more), though this is non-trivial, and
 #  only affects the big storage instance types, which aren't a typical use case right now.
-BLOCK_DEVICE_MAPPINGS="[{\"DeviceName\": \"/dev/sdb\",\"VirtualName\":\"ephemeral0\"},{\"DeviceName\": \"/dev/sdc\",\"VirtualName\":\"ephemeral1\"},{\"DeviceName\": \"/dev/sdd\",\"VirtualName\":\"ephemeral2\"},{\"DeviceName\": \"/dev/sde\",\"VirtualName\":\"ephemeral3\"}]"
+BLOCK_DEVICE_MAPPINGS_BASE="{\"DeviceName\": \"/dev/sdc\",\"VirtualName\":\"ephemeral0\"},{\"DeviceName\": \"/dev/sdd\",\"VirtualName\":\"ephemeral1\"},{\"DeviceName\": \"/dev/sde\",\"VirtualName\":\"ephemeral2\"},{\"DeviceName\": \"/dev/sdf\",\"VirtualName\":\"ephemeral3\"}"
+MASTER_BLOCK_DEVICE_MAPPINGS="[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"DeleteOnTermination\":true,\"VolumeSize\":${MASTER_ROOT_DISK_SIZE},\"VolumeType\":\"${MASTER_ROOT_DISK_TYPE}\"}}, ${BLOCK_DEVICE_MAPPINGS_BASE}]"
+MINION_BLOCK_DEVICE_MAPPINGS="[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"DeleteOnTermination\":true,\"VolumeSize\":${MINION_ROOT_DISK_SIZE},\"VolumeType\":\"${MINION_ROOT_DISK_TYPE}\"}}, ${BLOCK_DEVICE_MAPPINGS_BASE}]"
 
 function json_val {
     python -c 'import json,sys;obj=json.load(sys.stdin);print obj'$1''
@@ -73,10 +83,6 @@ function get_vpc_id {
 
 function get_subnet_id {
   python -c "import json,sys; lst = [str(subnet['SubnetId']) for subnet in json.load(sys.stdin)['Subnets'] if subnet['VpcId'] == '$1' and subnet['AvailabilityZone'] == '$2']; print ''.join(lst)"
-}
-
-function get_cidr {
-  python -c "import json,sys; lst = [str(subnet['CidrBlock']) for subnet in json.load(sys.stdin)['Subnets'] if subnet['VpcId'] == '$1' and subnet['AvailabilityZone'] == '$2']; print ''.join(lst)"
 }
 
 function get_igw_id {
@@ -111,6 +117,13 @@ function get_instance_public_ip {
   $AWS_CMD --output text describe-instances \
     --instance-ids ${instance_id} \
     --query Reservations[].Instances[].NetworkInterfaces[0].Association.PublicIp
+}
+
+function get_instance_private_ip {
+  local instance_id=$1
+  $AWS_CMD --output text describe-instances \
+    --instance-ids ${instance_id} \
+    --query Reservations[].Instances[].NetworkInterfaces[0].PrivateIpAddress
 }
 
 # Gets a security group id, by name ($1)
@@ -218,11 +231,17 @@ function detect-security-groups {
 #   AWS_IMAGE
 function detect-image () {
 case "${KUBE_OS_DISTRIBUTION}" in
-  ubuntu|coreos)
-    detect-ubuntu-image
+  trusty|coreos)
+    detect-trusty-image
+    ;;
+  vivid)
+    detect-vivid-image
     ;;
   wheezy)
     detect-wheezy-image
+    ;;
+  jessie)
+    detect-jessie-image
     ;;
   *)
     echo "Please specify AWS_IMAGE directly (distro not recognized)"
@@ -231,12 +250,12 @@ case "${KUBE_OS_DISTRIBUTION}" in
 esac
 }
 
-# Detects the AMI to use for ubuntu (considering the region)
+# Detects the AMI to use for trusty (considering the region)
 # Used by CoreOS & Ubuntu
 #
 # Vars set:
 #   AWS_IMAGE
-function detect-ubuntu-image () {
+function detect-trusty-image () {
   # This is the ubuntu 14.04 image for <region>, amd64, hvm:ebs-ssd
   # See here: http://cloud-images.ubuntu.com/locator/ec2/ for other images
   # This will need to be updated from time to time as amis are deprecated
@@ -298,9 +317,18 @@ function detect-ubuntu-image () {
 # Note that this is a different hash from the OpenSSH hash.
 # But AWS gives us this public key hash in the describe keys output, so we should stick with this format.
 # Hopefully this will be done by the aws cli tool one day: https://github.com/aws/aws-cli/issues/191
+# NOTE: This does not work on Mavericks, due to an odd ssh-keygen version, so we use get-ssh-fingerprint instead
 function get-aws-fingerprint {
   local -r pubkey_path=$1
-  ssh-keygen -f ${pubkey_path} -e -m PKCS8  | openssl pkey -pubin -outform DER | openssl md5 -c | sed -e 's/(stdin)= //g'
+  ssh-keygen -f ${pubkey_path} -e -m PKCS8  | openssl rsa -pubin -outform DER | openssl md5 -c | sed -e 's/(stdin)= //g'
+}
+
+# Computes the SSH fingerprint for a public key file ($1)
+# #1: path to public key file
+# Note this is different from the AWS fingerprint; see notes on get-aws-fingerprint
+function get-ssh-fingerprint {
+  local -r pubkey_path=$1
+  ssh-keygen -lf ${pubkey_path} | cut -f2 -d' '
 }
 
 # Import an SSH public key to AWS.
@@ -358,6 +386,34 @@ function authorize-security-group-ingress {
       echo "Output: ${output}"
       exit 1
     fi
+  fi
+}
+
+# Gets master persistent volume, if exists
+# Sets MASTER_DISK_ID
+function find-master-pd {
+  local name=${MASTER_NAME}-pd
+  if [[ -z "${MASTER_DISK_ID}" ]]; then
+    MASTER_DISK_ID=`$AWS_CMD --output text describe-volumes \
+                             --filters Name=availability-zone,Values=${ZONE} \
+                                       Name=tag:Name,Values=${name} \
+                                       Name=tag:KubernetesCluster,Values=${CLUSTER_ID} \
+                             --query Volumes[].VolumeId`
+  fi
+}
+
+# Gets or creates master persistent volume
+# Sets MASTER_DISK_ID
+function ensure-master-pd {
+  local name=${MASTER_NAME}-pd
+
+  find-master-pd
+
+  if [[ -z "${MASTER_DISK_ID}" ]]; then
+    echo "Creating master disk: size ${MASTER_DISK_SIZE}GB, type ${MASTER_DISK_TYPE}"
+    MASTER_DISK_ID=`$AWS_CMD create-volume --availability-zone ${ZONE} --volume-type ${MASTER_DISK_TYPE} --size ${MASTER_DISK_SIZE} --query VolumeId --output text`
+    add-tag ${MASTER_DISK_ID} Name ${name}
+    add-tag ${MASTER_DISK_ID} KubernetesCluster ${CLUSTER_ID}
   fi
 }
 
@@ -433,7 +489,8 @@ function upload-server-tars() {
   fi
 
   echo "Uploading to Amazon S3"
-  if ! aws s3 ls "s3://${AWS_S3_BUCKET}" > /dev/null 2>&1 ; then
+
+  if ! aws s3api get-bucket-location --bucket ${AWS_S3_BUCKET} > /dev/null 2>&1 ; then
     echo "Creating ${AWS_S3_BUCKET}"
 
     # Buckets must be globally uniquely named, so always create in a known region
@@ -443,7 +500,7 @@ function upload-server-tars() {
 
     local attempt=0
     while true; do
-      if ! aws s3 ls "s3://${AWS_S3_BUCKET}" > /dev/null 2>&1; then
+      if ! aws s3 ls --region ${AWS_S3_REGION} "s3://${AWS_S3_BUCKET}" > /dev/null 2>&1; then
         if (( attempt > 5 )); then
           echo
           echo -e "${color_red}Unable to confirm bucket creation." >&2
@@ -464,6 +521,7 @@ function upload-server-tars() {
   if [[ "${s3_bucket_location}" == "None" ]]; then
     # "US Classic" does not follow the pattern
     s3_url_base=https://s3.amazonaws.com
+    s3_bucket_location=us-east-1
   fi
 
   local -r staging_path="devel"
@@ -476,13 +534,13 @@ function upload-server-tars() {
   cp -a "${SERVER_BINARY_TAR}" ${local_dir}
   cp -a "${SALT_TAR}" ${local_dir}
 
-  aws s3 sync --exact-timestamps ${local_dir} "s3://${AWS_S3_BUCKET}/${staging_path}/"
+  aws s3 sync --region ${s3_bucket_location} --exact-timestamps ${local_dir} "s3://${AWS_S3_BUCKET}/${staging_path}/"
 
-  aws s3api put-object-acl --bucket ${AWS_S3_BUCKET} --key "${server_binary_path}" --grant-read 'uri="http://acs.amazonaws.com/groups/global/AllUsers"'
+  aws s3api put-object-acl --region ${s3_bucket_location} --bucket ${AWS_S3_BUCKET} --key "${server_binary_path}" --grant-read 'uri="http://acs.amazonaws.com/groups/global/AllUsers"'
   SERVER_BINARY_TAR_URL="${s3_url_base}/${AWS_S3_BUCKET}/${server_binary_path}"
 
   local salt_tar_path="${staging_path}/${SALT_TAR##*/}"
-  aws s3api put-object-acl --bucket ${AWS_S3_BUCKET} --key "${salt_tar_path}" --grant-read 'uri="http://acs.amazonaws.com/groups/global/AllUsers"'
+  aws s3api put-object-acl --region ${s3_bucket_location} --bucket ${AWS_S3_BUCKET} --key "${salt_tar_path}" --grant-read 'uri="http://acs.amazonaws.com/groups/global/AllUsers"'
   SALT_TAR_URL="${s3_url_base}/${AWS_S3_BUCKET}/${salt_tar_path}"
 }
 
@@ -629,14 +687,18 @@ function kube-up {
     ssh-keygen -f "$AWS_SSH_KEY" -N ''
   fi
 
-  AWS_SSH_KEY_FINGERPRINT=$(get-aws-fingerprint ${AWS_SSH_KEY}.pub)
+  # Note that we use get-ssh-fingerprint, so this works on OSX Mavericks
+  # get-aws-fingerprint gives the same fingerprint that AWS computes,
+  # but OSX Mavericks ssh-keygen can't compute it
+  AWS_SSH_KEY_FINGERPRINT=$(get-ssh-fingerprint ${AWS_SSH_KEY}.pub)
   echo "Using SSH key with (AWS) fingerprint: ${AWS_SSH_KEY_FINGERPRINT}"
   AWS_SSH_KEY_NAME="kubernetes-${AWS_SSH_KEY_FINGERPRINT//:/}"
 
   import-public-key ${AWS_SSH_KEY_NAME} ${AWS_SSH_KEY}.pub
 
-  VPC_ID=$(get_vpc_id)
-
+  if [[ -z "${VPC_ID:-}" ]]; then
+    VPC_ID=$(get_vpc_id)
+  fi
   if [[ -z "$VPC_ID" ]]; then
 	  echo "Creating vpc."
 	  VPC_ID=$($AWS_CMD create-vpc --cidr-block $INTERNAL_IP_BASE.0/16 | json_val '["Vpc"]["VpcId"]')
@@ -648,13 +710,15 @@ function kube-up {
 
   echo "Using VPC $VPC_ID"
 
-  SUBNET_ID=$($AWS_CMD describe-subnets --filters Name=tag:KubernetesCluster,Values=${CLUSTER_ID} | get_subnet_id $VPC_ID $ZONE)
+  if [[ -z "${SUBNET_ID:-}" ]]; then
+    SUBNET_ID=$($AWS_CMD describe-subnets --filters Name=tag:KubernetesCluster,Values=${CLUSTER_ID} | get_subnet_id $VPC_ID $ZONE)
+  fi
   if [[ -z "$SUBNET_ID" ]]; then
     echo "Creating subnet."
     SUBNET_ID=$($AWS_CMD create-subnet --cidr-block $INTERNAL_IP_BASE.0/24 --vpc-id $VPC_ID --availability-zone ${ZONE} | json_val '["Subnet"]["SubnetId"]')
     add-tag $SUBNET_ID KubernetesCluster ${CLUSTER_ID}
   else
-    EXISTING_CIDR=$($AWS_CMD describe-subnets --filters Name=tag:KubernetesCluster,Values=${CLUSTER_ID} | get_cidr $VPC_ID $ZONE)
+    EXISTING_CIDR=$($AWS_CMD describe-subnets --subnet-ids ${SUBNET_ID} --query Subnets[].CidrBlock --output text)
     echo "Using existing CIDR $EXISTING_CIDR"
     INTERNAL_IP_BASE=${EXISTING_CIDR%.*}
     MASTER_INTERNAL_IP=${INTERNAL_IP_BASE}${MASTER_IP_SUFFIX}
@@ -724,6 +788,16 @@ function kube-up {
   # HTTPS to the master is allowed (for API access)
   authorize-security-group-ingress "${MASTER_SG_ID}" "--protocol tcp --port 443 --cidr 0.0.0.0/0"
 
+  # Get or create master persistent volume
+  ensure-master-pd
+
+  # Determine extra certificate names for master
+  octets=($(echo "$SERVICE_CLUSTER_IP_RANGE" | sed -e 's|/.*||' -e 's/\./ /g'))
+  ((octets[3]+=1))
+  service_ip=$(echo "${octets[*]}" | sed 's/ /./g')
+  MASTER_EXTRA_SANS="IP:${service_ip},DNS:kubernetes,DNS:kubernetes.default,DNS:kubernetes.default.svc,DNS:kubernetes.default.svc.${DNS_DOMAIN},DNS:${MASTER_NAME}"
+
+
   (
     # We pipe this to the ami as a startup script in the user-data field.  Requires a compatible ami
     echo "#! /bin/bash"
@@ -741,12 +815,12 @@ function kube-up {
     echo "readonly KUBE_PASSWORD='${KUBE_PASSWORD}'"
     echo "readonly SERVICE_CLUSTER_IP_RANGE='${SERVICE_CLUSTER_IP_RANGE}'"
     echo "readonly ENABLE_CLUSTER_MONITORING='${ENABLE_CLUSTER_MONITORING:-none}'"
-    echo "readonly ENABLE_NODE_MONITORING='${ENABLE_NODE_MONITORING:-false}'"
     echo "readonly ENABLE_CLUSTER_LOGGING='${ENABLE_CLUSTER_LOGGING:-false}'"
     echo "readonly ENABLE_NODE_LOGGING='${ENABLE_NODE_LOGGING:-false}'"
     echo "readonly LOGGING_DESTINATION='${LOGGING_DESTINATION:-}'"
     echo "readonly ELASTICSEARCH_LOGGING_REPLICAS='${ELASTICSEARCH_LOGGING_REPLICAS:-}'"
     echo "readonly ENABLE_CLUSTER_DNS='${ENABLE_CLUSTER_DNS:-false}'"
+    echo "readonly ENABLE_CLUSTER_UI='${ENABLE_CLUSTER_UI:-false}'"
     echo "readonly DNS_REPLICAS='${DNS_REPLICAS:-}'"
     echo "readonly DNS_SERVER_IP='${DNS_SERVER_IP:-}'"
     echo "readonly DNS_DOMAIN='${DNS_DOMAIN:-}'"
@@ -755,8 +829,10 @@ function kube-up {
     echo "readonly KUBELET_TOKEN='${KUBELET_TOKEN}'"
     echo "readonly KUBE_PROXY_TOKEN='${KUBE_PROXY_TOKEN}'"
     echo "readonly DOCKER_STORAGE='${DOCKER_STORAGE:-}'"
+    echo "readonly MASTER_EXTRA_SANS='${MASTER_EXTRA_SANS:-}'"
     grep -v "^#" "${KUBE_ROOT}/cluster/aws/templates/common.sh"
     grep -v "^#" "${KUBE_ROOT}/cluster/aws/templates/format-disks.sh"
+    grep -v "^#" "${KUBE_ROOT}/cluster/aws/templates/setup-master-pd.sh"
     grep -v "^#" "${KUBE_ROOT}/cluster/aws/templates/create-dynamic-salt-files.sh"
     grep -v "^#" "${KUBE_ROOT}/cluster/aws/templates/download-release.sh"
     grep -v "^#" "${KUBE_ROOT}/cluster/aws/templates/salt-master.sh"
@@ -772,17 +848,16 @@ function kube-up {
     --key-name ${AWS_SSH_KEY_NAME} \
     --security-group-ids ${MASTER_SG_ID} \
     --associate-public-ip-address \
-    --block-device-mappings "${BLOCK_DEVICE_MAPPINGS}" \
+    --block-device-mappings "${MASTER_BLOCK_DEVICE_MAPPINGS}" \
     --user-data file://${KUBE_TEMP}/master-start.sh | json_val '["Instances"][0]["InstanceId"]')
   add-tag $master_id Name $MASTER_NAME
   add-tag $master_id Role $MASTER_TAG
   add-tag $master_id KubernetesCluster ${CLUSTER_ID}
 
   echo "Waiting for master to be ready"
-
   local attempt=0
 
-   while true; do
+  while true; do
     echo -n Attempt "$(($attempt+1))" to check for master node
     local ip=$(get_instance_public_ip ${master_id})
     if [[ -z "${ip}" ]]; then
@@ -798,8 +873,14 @@ function kube-up {
       KUBE_MASTER_IP=$(assign-elastic-ip $ip $master_id)
       echo -e " ${color_green}[master running @${KUBE_MASTER_IP}]${color_norm}"
 
-      # We are not able to add a route to the instance until that instance is in "running" state.
+      # We are not able to add a route or volume to the instance until that instance is in "running" state.
       wait-for-instance-running $master_id
+
+      # This is a race between instance start and volume attachment.  There appears to be no way to start an AWS instance with a volume attached.
+      # To work around this, we wait for volume to be ready in setup-master-pd.sh
+      echo "Attaching persistent data volume (${MASTER_DISK_ID}) to master"
+      $AWS_CMD attach-volume --volume-id ${MASTER_DISK_ID} --device /dev/sdb --instance-id ${master_id}
+
       sleep 10
       $AWS_CMD create-route --route-table-id $ROUTE_TABLE_ID --destination-cidr-block ${MASTER_IP_RANGE} --instance-id $master_id > $LOG
 
@@ -878,7 +959,7 @@ function kube-up {
       --key-name ${AWS_SSH_KEY_NAME} \
       --security-groups ${MINION_SG_ID} \
       ${public_ip_option} \
-      --block-device-mappings "${BLOCK_DEVICE_MAPPINGS}" \
+      --block-device-mappings "${MINION_BLOCK_DEVICE_MAPPINGS}" \
       --user-data "file://${KUBE_TEMP}/minion-user-data"
 
   echo "Creating autoscaling group"

@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GoogleCloudPlatform/kubernetes/contrib/mesos/pkg/runtime"
 	log "github.com/golang/glog"
+	"k8s.io/kubernetes/contrib/mesos/pkg/runtime"
 )
 
 // logs a testing.Fatalf if the elapsed time d passes before signal chan done is closed
@@ -347,8 +347,10 @@ func TestProc_doWithNestedX(t *testing.T) {
 	fatalAfter(t, p.Done(), 5*time.Second, "timed out waiting for process death")
 }
 
+// TODO(jdef): find a way to test this without killing CI builds.
 // intended to be run with -race
 func TestProc_doWithNestedXConcurrent(t *testing.T) {
+	t.Skip("disabled for causing CI timeouts.")
 	config := defaultConfig
 	config.actionQueueDepth = 0
 	p := newConfigured(config)

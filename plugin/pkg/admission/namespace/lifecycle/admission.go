@@ -20,16 +20,17 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/admission"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/latest"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/meta"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/client"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/client/cache"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/watch"
+	"k8s.io/kubernetes/pkg/admission"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/errors"
+	"k8s.io/kubernetes/pkg/api/meta"
+	client "k8s.io/kubernetes/pkg/client/unversioned"
+	"k8s.io/kubernetes/pkg/client/unversioned/cache"
+	"k8s.io/kubernetes/pkg/fields"
+	"k8s.io/kubernetes/pkg/labels"
+	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/util"
+	"k8s.io/kubernetes/pkg/watch"
 )
 
 func init() {
@@ -42,16 +43,26 @@ func init() {
 // It enforces life-cycle constraints around a Namespace depending on its Phase
 type lifecycle struct {
 	*admission.Handler
-	client client.Interface
-	store  cache.Store
+	client             client.Interface
+	store              cache.Store
+	immortalNamespaces util.StringSet
 }
 
 func (l *lifecycle) Admit(a admission.Attributes) (err error) {
-	defaultVersion, kind, err := latest.RESTMapper.VersionAndKindForResource(a.GetResource())
+
+	// prevent deletion of immortal namespaces
+	if a.GetOperation() == admission.Delete {
+		if a.GetKind() == "Namespace" && l.immortalNamespaces.Has(a.GetName()) {
+			return errors.NewForbidden(a.GetKind(), a.GetName(), fmt.Errorf("namespace can never be deleted"))
+		}
+		return nil
+	}
+
+	defaultVersion, kind, err := api.RESTMapper.VersionAndKindForResource(a.GetResource())
 	if err != nil {
 		return admission.NewForbidden(a, err)
 	}
-	mapping, err := latest.RESTMapper.RESTMapping(kind, defaultVersion)
+	mapping, err := api.RESTMapper.RESTMapping(kind, defaultVersion)
 	if err != nil {
 		return admission.NewForbidden(a, err)
 	}
@@ -96,8 +107,9 @@ func NewLifecycle(c client.Interface) admission.Interface {
 	)
 	reflector.Run()
 	return &lifecycle{
-		Handler: admission.NewHandler(admission.Create),
-		client:  c,
-		store:   store,
+		Handler:            admission.NewHandler(admission.Create, admission.Delete),
+		client:             c,
+		store:              store,
+		immortalNamespaces: util.NewStringSet(api.NamespaceDefault),
 	}
 }

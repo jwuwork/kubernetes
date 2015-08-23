@@ -11,6 +11,13 @@ addon-dir-create:
     - require:
         - file: addon-dir-delete
 
+/etc/kubernetes/addons/namespace.yaml:
+  file.managed:
+    - source: salt://kube-addons/namespace.yaml
+    - user: root
+    - group: root
+    - file_mode: 644
+
 {% if pillar.get('enable_cluster_monitoring', '').lower() == 'influxdb' %}
 /etc/kubernetes/addons/cluster-monitoring/influxdb:
   file.recurse:
@@ -74,12 +81,59 @@ addon-dir-create:
     - makedirs: True
 {% endif %}
 
+{% if pillar.get('enable_cluster_registry', '').lower() == 'true' %}
+/etc/kubernetes/addons/registry/registry-svc.yaml:
+  file.managed:
+    - source: salt://kube-addons/registry/registry-svc.yaml
+    - user: root
+    - group: root
+    - file_mode: 644
+    - makedirs: True
+
+/etc/kubernetes/addons/registry/registry-rc.yaml:
+  file.managed:
+    - source: salt://kube-addons/registry/registry-rc.yaml
+    - user: root
+    - group: root
+    - file_mode: 644
+    - makedirs: True
+
+/etc/kubernetes/addons/registry/registry-pv.yaml:
+  file.managed:
+    - source: salt://kube-addons/registry/registry-pv.yaml.in
+    - template: jinja
+    - user: root
+    - group: root
+    - file_mode: 644
+    - makedirs: True
+
+/etc/kubernetes/addons/registry/registry-pvc.yaml:
+  file.managed:
+    - source: salt://kube-addons/registry/registry-pvc.yaml.in
+    - template: jinja
+    - user: root
+    - group: root
+    - file_mode: 644
+    - makedirs: True
+{% endif %}
+
 {% if pillar.get('enable_node_logging', '').lower() == 'true'
    and pillar.get('logging_destination').lower() == 'elasticsearch'
    and pillar.get('enable_cluster_logging', '').lower() == 'true' %}
 /etc/kubernetes/addons/fluentd-elasticsearch:
   file.recurse:
     - source: salt://kube-addons/fluentd-elasticsearch
+    - include_pat: E@^.+\.yaml$
+    - user: root
+    - group: root
+    - dir_mode: 755
+    - file_mode: 644
+{% endif %}
+
+{% if pillar.get('enable_cluster_ui', '').lower() == 'true' %}
+/etc/kubernetes/addons/kube-ui:
+  file.recurse:
+    - source: salt://kube-addons/kube-ui
     - include_pat: E@^.+\.yaml$
     - user: root
     - group: root
@@ -101,13 +155,17 @@ addon-dir-create:
     - group: root
     - mode: 755
 
-{% if grains['os_family'] == 'RedHat' %}
+{% if pillar.get('is_systemd') %}
 
-/usr/lib/systemd/system/kube-addons.service:
+{{ pillar.get('systemd_system_path') }}/kube-addons.service:
   file.managed:
     - source: salt://kube-addons/kube-addons.service
     - user: root
     - group: root
+  cmd.wait:
+    - name: /opt/kubernetes/helpers/services bounce kube-addons
+    - watch:
+      - file: {{ pillar.get('systemd_system_path') }}/kube-addons.service
 
 {% else %}
 
@@ -133,3 +191,9 @@ kube-addons:
     - enable: True
     - require:
         - service: service-kube-addon-stop
+    - watch:
+{% if pillar.get('is_systemd') %}
+      - file: {{ pillar.get('systemd_system_path') }}/kube-addons.service
+{% else %}
+      - file: /etc/init.d/kube-addons
+{% endif %}

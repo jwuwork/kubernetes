@@ -21,16 +21,16 @@ import (
 	"net"
 	"time"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/endpoints"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/errors"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/rest"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/registry/endpoint"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/registry/namespace"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/registry/service"
-	servicecontroller "github.com/GoogleCloudPlatform/kubernetes/pkg/registry/service/ipallocator/controller"
-	portallocatorcontroller "github.com/GoogleCloudPlatform/kubernetes/pkg/registry/service/portallocator/controller"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/endpoints"
+	"k8s.io/kubernetes/pkg/api/errors"
+	"k8s.io/kubernetes/pkg/api/rest"
+	"k8s.io/kubernetes/pkg/registry/endpoint"
+	"k8s.io/kubernetes/pkg/registry/namespace"
+	"k8s.io/kubernetes/pkg/registry/service"
+	servicecontroller "k8s.io/kubernetes/pkg/registry/service/ipallocator/controller"
+	portallocatorcontroller "k8s.io/kubernetes/pkg/registry/service/portallocator/controller"
+	"k8s.io/kubernetes/pkg/util"
 
 	"github.com/golang/glog"
 )
@@ -155,7 +155,7 @@ func (c *Controller) CreateMasterServiceIfNeeded(serviceName string, serviceIP n
 			Labels:    map[string]string{"provider": "kubernetes", "component": "apiserver"},
 		},
 		Spec: api.ServiceSpec{
-			Ports: []api.ServicePort{{Port: servicePort, Protocol: api.ProtocolTCP}},
+			Ports: []api.ServicePort{{Port: servicePort, Protocol: api.ProtocolTCP, TargetPort: util.NewIntOrStringFromInt(servicePort)}},
 			// maintained by this code, not by the pod selector
 			Selector:        nil,
 			ClusterIP:       serviceIP.String(),

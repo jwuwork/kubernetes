@@ -22,7 +22,7 @@ import (
 	"net/url"
 	"reflect"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/conversion"
+	"k8s.io/kubernetes/pkg/conversion"
 )
 
 // Scheme defines methods for serializing and deserializing API objects. It
@@ -83,7 +83,7 @@ func (self *Scheme) embeddedObjectToRawExtension(in *EmbeddedObject, out *RawExt
 		return err
 	}
 
-	// Copy the kind field into the ouput object.
+	// Copy the kind field into the output object.
 	err = s.Convert(
 		&emptyPlugin{PluginBase: PluginBase{Kind: kind}},
 		outObj,
@@ -446,6 +446,19 @@ func (s *Scheme) Decode(data []byte) (Object, error) {
 	return obj.(Object), nil
 }
 
+// DecodeToVersion converts a YAML or JSON string back into a pointer to an api
+// object.  Deduces the type based upon the APIVersion and Kind fields, which
+// are set by Encode. Only versioned objects (APIVersion != "") are
+// accepted. The object will be converted into the in-memory versioned type
+// requested before being returned.
+func (s *Scheme) DecodeToVersion(data []byte, version string) (Object, error) {
+	obj, err := s.raw.DecodeToVersion(data, version)
+	if err != nil {
+		return nil, err
+	}
+	return obj.(Object), nil
+}
+
 // DecodeInto parses a YAML or JSON string and stores it in obj. Returns an error
 // if data.Kind is set and doesn't match the type of obj. Obj should be a
 // pointer to an api type.
@@ -458,16 +471,17 @@ func (s *Scheme) DecodeInto(data []byte, obj Object) error {
 	return s.raw.DecodeInto(data, obj)
 }
 
+func (s *Scheme) DecodeIntoWithSpecifiedVersionKind(data []byte, obj Object, version, kind string) error {
+	return s.raw.DecodeIntoWithSpecifiedVersionKind(data, obj, version, kind)
+}
+
 // Copy does a deep copy of an API object.  Useful mostly for tests.
-// TODO(dbsmith): implement directly instead of via Encode/Decode
-// TODO(claytonc): Copy cannot be used for objects which do not encode type information, such
-// as lists of runtime.Objects
-func (s *Scheme) Copy(obj Object) (Object, error) {
-	data, err := s.EncodeToVersion(obj, "")
+func (s *Scheme) Copy(src Object) (Object, error) {
+	dst, err := s.raw.DeepCopy(src)
 	if err != nil {
 		return nil, err
 	}
-	return s.Decode(data)
+	return dst.(Object), nil
 }
 
 func (s *Scheme) CopyOrDie(obj Object) Object {

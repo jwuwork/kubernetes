@@ -17,12 +17,12 @@ limitations under the License.
 package api
 
 import (
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/resource"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/conversion"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
+	"k8s.io/kubernetes/pkg/api/resource"
+	"k8s.io/kubernetes/pkg/conversion"
+	"k8s.io/kubernetes/pkg/fields"
+	"k8s.io/kubernetes/pkg/labels"
+	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/util"
 )
 
 // Codec is the identity codec for this package - it can only convert itself
@@ -35,7 +35,12 @@ func init() {
 			obj.LabelSelector = labels.Everything()
 			obj.FieldSelector = fields.Everything()
 		},
+		// TODO: see about moving this into v1/defaults.go
 		func(obj *PodExecOptions) {
+			obj.Stderr = true
+			obj.Stdout = true
+		},
+		func(obj *PodAttachOptions) {
 			obj.Stderr = true
 			obj.Stdout = true
 		},
@@ -79,95 +84,6 @@ func init() {
 		func(in *resource.Quantity, out *resource.Quantity, s conversion.Scope) error {
 			// Cannot deep copy these, because inf.Dec has unexported fields.
 			*out = *in.Copy()
-			return nil
-		},
-		// Convert ContainerManifest to Pod
-		func(in *ContainerManifest, out *Pod, s conversion.Scope) error {
-			out.Spec.Containers = in.Containers
-			out.Spec.Volumes = in.Volumes
-			out.Spec.RestartPolicy = in.RestartPolicy
-			out.Spec.DNSPolicy = in.DNSPolicy
-			out.Name = in.ID
-			out.UID = in.UUID
-
-			if in.ID != "" {
-				out.SelfLink = "/api/v1beta1/pods/" + in.ID
-			}
-
-			return nil
-		},
-		func(in *Pod, out *ContainerManifest, s conversion.Scope) error {
-			out.Containers = in.Spec.Containers
-			out.Volumes = in.Spec.Volumes
-			out.RestartPolicy = in.Spec.RestartPolicy
-			out.DNSPolicy = in.Spec.DNSPolicy
-			out.Version = "v1beta2"
-			out.ID = in.Name
-			out.UUID = in.UID
-			return nil
-		},
-
-		// ContainerManifestList
-		func(in *ContainerManifestList, out *PodList, s conversion.Scope) error {
-			if err := s.Convert(&in.Items, &out.Items, 0); err != nil {
-				return err
-			}
-			for i := range out.Items {
-				item := &out.Items[i]
-				item.ResourceVersion = in.ResourceVersion
-			}
-			return nil
-		},
-		func(in *PodList, out *ContainerManifestList, s conversion.Scope) error {
-			if err := s.Convert(&in.Items, &out.Items, 0); err != nil {
-				return err
-			}
-			out.ResourceVersion = in.ResourceVersion
-			return nil
-		},
-
-		// Conversion between Manifest and PodSpec
-		func(in *PodSpec, out *ContainerManifest, s conversion.Scope) error {
-			if err := s.Convert(&in.Volumes, &out.Volumes, 0); err != nil {
-				return err
-			}
-			if err := s.Convert(&in.Containers, &out.Containers, 0); err != nil {
-				return err
-			}
-			if err := s.Convert(&in.RestartPolicy, &out.RestartPolicy, 0); err != nil {
-				return err
-			}
-			if in.TerminationGracePeriodSeconds != nil {
-				out.TerminationGracePeriodSeconds = new(int64)
-				*out.TerminationGracePeriodSeconds = *in.TerminationGracePeriodSeconds
-			}
-			if in.ActiveDeadlineSeconds != nil {
-				out.ActiveDeadlineSeconds = new(int64)
-				*out.ActiveDeadlineSeconds = *in.ActiveDeadlineSeconds
-			}
-			out.DNSPolicy = in.DNSPolicy
-			out.Version = "v1beta2"
-			return nil
-		},
-		func(in *ContainerManifest, out *PodSpec, s conversion.Scope) error {
-			if err := s.Convert(&in.Volumes, &out.Volumes, 0); err != nil {
-				return err
-			}
-			if err := s.Convert(&in.Containers, &out.Containers, 0); err != nil {
-				return err
-			}
-			if err := s.Convert(&in.RestartPolicy, &out.RestartPolicy, 0); err != nil {
-				return err
-			}
-			if in.TerminationGracePeriodSeconds != nil {
-				out.TerminationGracePeriodSeconds = new(int64)
-				*out.TerminationGracePeriodSeconds = *in.TerminationGracePeriodSeconds
-			}
-			if in.ActiveDeadlineSeconds != nil {
-				out.ActiveDeadlineSeconds = new(int64)
-				*out.ActiveDeadlineSeconds = *in.ActiveDeadlineSeconds
-			}
-			out.DNSPolicy = in.DNSPolicy
 			return nil
 		},
 	)

@@ -17,9 +17,9 @@ limitations under the License.
 package e2e
 
 import (
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/client"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
+	"k8s.io/kubernetes/pkg/api"
+	client "k8s.io/kubernetes/pkg/client/unversioned"
+	"k8s.io/kubernetes/pkg/util"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -39,13 +39,13 @@ var _ = Describe("Docker Containers", func() {
 	})
 
 	AfterEach(func() {
-		if err := c.Namespaces().Delete(ns); err != nil {
+		if err := deleteNS(c, ns); err != nil {
 			Failf("Couldn't delete ns %s", err)
 		}
 	})
 
 	It("should use the image defaults if command and args are blank", func() {
-		testContainerOutputInNamespace("use defaults", c, entrypointTestPod(), []string{
+		testContainerOutputInNamespace("use defaults", c, entrypointTestPod(), 0, []string{
 			"[/ep default arguments]",
 		}, ns)
 	})
@@ -54,7 +54,7 @@ var _ = Describe("Docker Containers", func() {
 		pod := entrypointTestPod()
 		pod.Spec.Containers[0].Args = []string{"override", "arguments"}
 
-		testContainerOutputInNamespace("override arguments", c, pod, []string{
+		testContainerOutputInNamespace("override arguments", c, pod, 0, []string{
 			"[/ep override arguments]",
 		}, ns)
 	})
@@ -65,7 +65,7 @@ var _ = Describe("Docker Containers", func() {
 		pod := entrypointTestPod()
 		pod.Spec.Containers[0].Command = []string{"/ep-2"}
 
-		testContainerOutputInNamespace("override command", c, pod, []string{
+		testContainerOutputInNamespace("override command", c, pod, 0, []string{
 			"[/ep-2]",
 		}, ns)
 	})
@@ -75,7 +75,7 @@ var _ = Describe("Docker Containers", func() {
 		pod.Spec.Containers[0].Command = []string{"/ep-2"}
 		pod.Spec.Containers[0].Args = []string{"override", "arguments"}
 
-		testContainerOutputInNamespace("override all", c, pod, []string{
+		testContainerOutputInNamespace("override all", c, pod, 0, []string{
 			"[/ep-2 override arguments]",
 		}, ns)
 	})

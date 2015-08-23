@@ -22,13 +22,13 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/latest"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/validation"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/kubelet"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/types"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
-	utilyaml "github.com/GoogleCloudPlatform/kubernetes/pkg/util/yaml"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/latest"
+	"k8s.io/kubernetes/pkg/api/validation"
+	"k8s.io/kubernetes/pkg/kubelet"
+	"k8s.io/kubernetes/pkg/types"
+	"k8s.io/kubernetes/pkg/util"
+	utilyaml "k8s.io/kubernetes/pkg/util/yaml"
 
 	"github.com/golang/glog"
 )
@@ -52,11 +52,6 @@ func applyDefaults(pod *api.Pod, source string, isFile bool, nodeName string) er
 		glog.V(5).Infof("Generated UID %q pod %q from %s", pod.UID, pod.Name, source)
 	}
 
-	// This is required for backward compatibility, and should be removed once we
-	// completely deprecate ContainerManifest.
-	if len(pod.Name) == 0 {
-		pod.Name = string(pod.UID)
-	}
 	pod.Name = generatePodName(pod.Name, nodeName)
 	glog.V(5).Infof("Generated Name %q for UID %q from URL %s", pod.Name, pod.UID, source)
 
@@ -74,14 +69,10 @@ func applyDefaults(pod *api.Pod, source string, isFile bool, nodeName string) er
 
 func getSelfLink(name, namespace string) string {
 	var selfLink string
-	if api.PreV1Beta3(latest.Version) {
-		selfLink = fmt.Sprintf("/api/"+latest.Version+"/pods/%s?namespace=%s", name, namespace)
-	} else {
-		if len(namespace) == 0 {
-			namespace = api.NamespaceDefault
-		}
-		selfLink = fmt.Sprintf("/api/"+latest.Version+"/pods/namespaces/%s/%s", name, namespace)
+	if len(namespace) == 0 {
+		namespace = api.NamespaceDefault
 	}
+	selfLink = fmt.Sprintf("/api/"+latest.Version+"/pods/namespaces/%s/%s", name, namespace)
 	return selfLink
 }
 

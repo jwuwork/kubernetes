@@ -19,29 +19,48 @@ package prober
 import (
 	"testing"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/probe"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util/exec"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/probe"
+	"k8s.io/kubernetes/pkg/util"
+	"k8s.io/kubernetes/pkg/util/exec"
 )
+
+func TestFormatURL(t *testing.T) {
+	testCases := []struct {
+		scheme string
+		host   string
+		port   int
+		path   string
+		result string
+	}{
+		{"http", "localhost", 93, "", "http://localhost:93"},
+		{"https", "localhost", 93, "/path", "https://localhost:93/path"},
+	}
+	for _, test := range testCases {
+		url := formatURL(test.scheme, test.host, test.port, test.path)
+		if url.String() != test.result {
+			t.Errorf("Expected %s, got %s", test.result, url.String())
+		}
+	}
+}
 
 func TestFindPortByName(t *testing.T) {
 	container := api.Container{
 		Ports: []api.ContainerPort{
 			{
-				Name:     "foo",
-				HostPort: 8080,
+				Name:          "foo",
+				ContainerPort: 8080,
 			},
 			{
-				Name:     "bar",
-				HostPort: 9000,
+				Name:          "bar",
+				ContainerPort: 9000,
 			},
 		},
 	}
 	want := 8080
-	got := findPortByName(container, "foo")
-	if got != want {
-		t.Errorf("Expected %v, got %v", want, got)
+	got, err := findPortByName(container, "foo")
+	if got != want || err != nil {
+		t.Errorf("Expected %v, got %v, err: %v", want, got, err)
 	}
 }
 
@@ -66,20 +85,30 @@ func TestGetURLParts(t *testing.T) {
 	for _, test := range testCases {
 		state := api.PodStatus{PodIP: "127.0.0.1"}
 		container := api.Container{
-			Ports: []api.ContainerPort{{Name: "found", HostPort: 93}},
+			Ports: []api.ContainerPort{{Name: "found", ContainerPort: 93}},
 			LivenessProbe: &api.Probe{
 				Handler: api.Handler{
 					HTTPGet: test.probe,
 				},
 			},
 		}
-		p, err := extractPort(test.probe.Port, container)
+
+		scheme := test.probe.Scheme
+		if scheme == "" {
+			scheme = api.URISchemeHTTP
+		}
+		host := test.probe.Host
+		if host == "" {
+			host = state.PodIP
+		}
+		port, err := extractPort(test.probe.Port, container)
 		if test.ok && err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
-		host, port, path := extractGetParams(test.probe, state, p)
+		path := test.probe.Path
+
 		if !test.ok && err == nil {
-			t.Errorf("Expected error for %+v, got %s:%d/%s", test, host, port, path)
+			t.Errorf("Expected error for %+v, got %s%s:%d/%s", test, scheme, host, port, path)
 		}
 		if test.ok {
 			if host != test.host || port != test.port || path != test.path {
@@ -109,7 +138,7 @@ func TestGetTCPAddrParts(t *testing.T) {
 	for _, test := range testCases {
 		host := "1.2.3.4"
 		container := api.Container{
-			Ports: []api.ContainerPort{{Name: "found", HostPort: 93}},
+			Ports: []api.ContainerPort{{Name: "found", ContainerPort: 93}},
 			LivenessProbe: &api.Probe{
 				Handler: api.Handler{
 					TCPSocket: test.probe,

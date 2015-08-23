@@ -17,8 +17,8 @@ limitations under the License.
 package meta
 
 import (
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/types"
+	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/types"
 )
 
 // VersionInterfaces contains the interfaces one should use for dealing with types of a particular version.
@@ -115,10 +115,8 @@ type RESTScope interface {
 	// ParamName is the optional name of the parameter that should be inserted in the resource url
 	// If empty, no param will be inserted
 	ParamName() string
-	// ParamPath is a boolean that controls how the parameter is manifested in resource paths
-	// If true, this parameter is encoded in path (i.e. /{paramName}/{paramValue})
-	// If false, this parameter is encoded in query (i.e. ?{paramName}={paramValue})
-	ParamPath() bool
+	// ArgumentName is the optional name that should be used for the variable holding the value.
+	ArgumentName() string
 	// ParamDescription is the optional description to use to document the parameter in api documentation
 	ParamDescription() string
 }
@@ -144,8 +142,19 @@ type RESTMapping struct {
 // RESTMapper allows clients to map resources to kind, and map kind and version
 // to interfaces for manipulating those objects. It is primarily intended for
 // consumers of Kubernetes compatible REST APIs as defined in docs/api-conventions.md.
+//
+// The Kubernetes API provides versioned resources and object kinds which are scoped
+// to API groups. In other words, kinds and resources should not be assumed to be
+// unique across groups.
+//
+// TODO(caesarxuchao): Add proper multi-group support so that kinds & resources are
+// scoped to groups. See http://issues.k8s.io/12413 and http://issues.k8s.io/10009.
 type RESTMapper interface {
 	VersionAndKindForResource(resource string) (defaultVersion, kind string, err error)
+	// TODO(caesarxuchao): Remove GroupForResource when multi-group support is in (since
+	// group will be part of the version).
+	GroupForResource(resource string) (string, error)
 	RESTMapping(kind string, versions ...string) (*RESTMapping, error)
 	AliasesForResource(resource string) ([]string, bool)
+	ResourceSingularizer(resource string) (singular string, err error)
 }

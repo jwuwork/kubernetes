@@ -19,10 +19,10 @@ package kubelet
 import (
 	"fmt"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/client"
-	kubecontainer "github.com/GoogleCloudPlatform/kubernetes/pkg/kubelet/container"
 	"github.com/golang/glog"
+	"k8s.io/kubernetes/pkg/api"
+	client "k8s.io/kubernetes/pkg/client/unversioned"
+	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 )
 
 // Mirror client is used to create/delete a mirror pod.
@@ -49,7 +49,7 @@ func (mc *basicMirrorClient) CreateMirrorPod(pod *api.Pod) error {
 	}
 	pod.Annotations[ConfigMirrorAnnotationKey] = MirrorType
 
-	_, err := mc.apiserverClient.Pods(NamespaceDefault).Create(pod)
+	_, err := mc.apiserverClient.Pods(pod.Namespace).Create(pod)
 	return err
 }
 
@@ -64,7 +64,7 @@ func (mc *basicMirrorClient) DeleteMirrorPod(podFullName string) error {
 		return err
 	}
 	glog.V(4).Infof("Deleting a mirror pod %q", podFullName)
-	if err := mc.apiserverClient.Pods(namespace).Delete(name, nil); err != nil {
+	if err := mc.apiserverClient.Pods(namespace).Delete(name, api.NewDeleteOptions(0)); err != nil {
 		glog.Errorf("Failed deleting a mirror pod %q: %v", podFullName, err)
 	}
 	return nil

@@ -26,7 +26,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/client"
+	client "k8s.io/kubernetes/pkg/client/unversioned"
 )
 
 func TestAccept(t *testing.T) {
@@ -98,10 +98,10 @@ func TestAccept(t *testing.T) {
 			acceptPaths:  DefaultPathAcceptRE,
 			rejectPaths:  DefaultPathRejectRE,
 			acceptHosts:  DefaultHostAcceptRE,
-			path:         "/foo/v1/pods",
+			path:         "/ui",
 			host:         "localhost",
 			method:       "GET",
-			expectAccept: false,
+			expectAccept: true,
 		},
 		{
 			acceptPaths:  DefaultPathAcceptRE,
@@ -230,7 +230,7 @@ func TestAPIRequests(t *testing.T) {
 
 	// httptest.NewServer should always generate a valid URL.
 	target, _ := url.Parse(ts.URL)
-	proxy := newProxyServer(target)
+	proxy := newProxy(target)
 
 	tests := []struct{ method, body string }{
 		{"GET", ""},
@@ -291,7 +291,7 @@ func TestPathHandling(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%#v: %v", item, err)
 			}
-			pts := httptest.NewServer(p.mux)
+			pts := httptest.NewServer(p.handler)
 			defer pts.Close()
 
 			r, err := http.Get(pts.URL + item.reqPath)
@@ -307,5 +307,18 @@ func TestPathHandling(t *testing.T) {
 				t.Errorf("%#v: Wanted %q, got %q", item, e, a)
 			}
 		}()
+	}
+}
+
+func TestExtractHost(t *testing.T) {
+	fixtures := map[string]string{
+		"localhost:8085": "localhost",
+		"marmalade":      "marmalade",
+	}
+	for header, expected := range fixtures {
+		host := extractHost(header)
+		if host != expected {
+			t.Fatalf("%s != %s", host, expected)
+		}
 	}
 }

@@ -42,7 +42,16 @@ export KUBECTL KUBE_CONFIG_FILE
 source "${KUBE_ROOT}/cluster/kube-env.sh"
 
 # ---- Do cloud-provider-specific setup
-if [[ -z "${AUTH_CONFIG:-}" ]];  then
+if [[ -n "${KUBERNETES_CONFORMANCE_TEST:-}" ]]; then
+    echo "Conformance test: not doing test setup."
+    KUBERNETES_PROVIDER=""
+
+    detect-master-from-kubeconfig
+
+    auth_config=(
+      "--kubeconfig=${KUBECONFIG}"
+    )
+else
     echo "Setting up for KUBERNETES_PROVIDER=\"${KUBERNETES_PROVIDER}\"."
 
     source "${KUBE_VERSION_ROOT}/cluster/${KUBERNETES_PROVIDER}/util.sh"
@@ -50,24 +59,11 @@ if [[ -z "${AUTH_CONFIG:-}" ]];  then
     prepare-e2e
 
     detect-master >/dev/null
+    KUBE_MASTER_URL="${KUBE_MASTER_URL:-https://${KUBE_MASTER_IP:-}}"
 
-    if [[ "${KUBERNETES_PROVIDER}" == "conformance_test" ]]; then
-      auth_config=(
-        "--auth-config=${KUBERNETES_CONFORMANCE_TEST_AUTH_CONFIG:-}"
-        "--cert-dir=${KUBERNETES_CONFORMANCE_TEST_CERT_DIR:-}"
-      )
-    else
-      auth_config=(
+    auth_config=(
       "--kubeconfig=${KUBECONFIG:-$DEFAULT_KUBECONFIG}"
-      )
-    fi
-else
-  echo "Conformance Test.  No cloud-provider-specific preparation."
-  KUBERNETES_PROVIDER=""
-  auth_config=(
-    "--auth-config=${AUTH_CONFIG:-}"
-    "--cert-dir=${CERT_DIR:-}"
-  )
+    )
 fi
 
 if [[ -n "${NODE_INSTANCE_PREFIX:-}" ]]; then
@@ -81,6 +77,10 @@ if [[ "${KUBERNETES_PROVIDER}" == "gke" ]]; then
 fi
 
 ginkgo_args=()
+if [[ -n "${CONFORMANCE_TEST_SKIP_REGEX:-}" ]]; then
+  ginkgo_args+=("--skip=${CONFORMANCE_TEST_SKIP_REGEX}")
+  ginkgo_args+=("--seed=1436380640")
+fi
 if [[ ${GINKGO_PARALLEL} =~ ^[yY]$ ]]; then
   ginkgo_args+=("-p")
 fi
@@ -93,7 +93,7 @@ fi
 export PATH=$(dirname "${e2e_test}"):"${PATH}"
 "${ginkgo}" "${ginkgo_args[@]:+${ginkgo_args[@]}}" "${e2e_test}" -- \
   "${auth_config[@]:+${auth_config[@]}}" \
-  --host="https://${KUBE_MASTER_IP-}" \
+  --host="${KUBE_MASTER_URL}" \
   --provider="${KUBERNETES_PROVIDER}" \
   --gce-project="${PROJECT:-}" \
   --gce-zone="${ZONE:-}" \
@@ -104,5 +104,6 @@ export PATH=$(dirname "${e2e_test}"):"${PATH}"
   --node-instance-group="${NODE_INSTANCE_GROUP:-}" \
   --num-nodes="${NUM_MINIONS:-}" \
   --prefix="${KUBE_GCE_INSTANCE_PREFIX:-e2e}" \
-  ${E2E_REPORT_DIR+"--report-dir=${E2E_REPORT_DIR}"} \
+  ${E2E_MIN_STARTUP_PODS:+"--minStartupPods=${E2E_MIN_STARTUP_PODS}"} \
+  ${E2E_REPORT_DIR:+"--report-dir=${E2E_REPORT_DIR}"} \
   "${@:-}"

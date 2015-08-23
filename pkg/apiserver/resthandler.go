@@ -23,13 +23,13 @@ import (
 	gpath "path"
 	"time"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/admission"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/errors"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/rest"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util/strategicpatch"
+	"k8s.io/kubernetes/pkg/admission"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/errors"
+	"k8s.io/kubernetes/pkg/api/rest"
+	"k8s.io/kubernetes/pkg/fields"
+	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/util/strategicpatch"
 
 	"github.com/emicklei/go-restful"
 	"github.com/evanphx/json-patch"
@@ -67,9 +67,10 @@ type RequestScope struct {
 	Creater   runtime.ObjectCreater
 	Convertor runtime.ObjectConvertor
 
-	Resource   string
-	Kind       string
-	APIVersion string
+	Resource    string
+	Subresource string
+	Kind        string
+	APIVersion  string
 
 	// The version of apiserver resources to use
 	ServerAPIVersion string
@@ -164,7 +165,8 @@ func ConnectResource(connecter rest.Connecter, scope RequestScope, admit admissi
 				ResourcePath: restPath,
 			}
 			userInfo, _ := api.UserFrom(ctx)
-			err = admit.Admit(admission.NewAttributesRecord(connectRequest, scope.Kind, namespace, scope.Resource, admission.Connect, userInfo))
+
+			err = admit.Admit(admission.NewAttributesRecord(connectRequest, scope.Kind, namespace, name, scope.Resource, scope.Subresource, admission.Connect, userInfo))
 			if err != nil {
 				errorJSON(err, scope.Codec, w)
 				return
@@ -300,7 +302,7 @@ func createHandler(r rest.NamedCreater, scope RequestScope, typer runtime.Object
 		}
 
 		obj := r.New()
-		if err := scope.Codec.DecodeInto(body, obj); err != nil {
+		if err := scope.Codec.DecodeIntoWithSpecifiedVersionKind(body, obj, scope.APIVersion, scope.Kind); err != nil {
 			err = transformDecodeError(typer, err, obj, body)
 			errorJSON(err, scope.Codec, w)
 			return
@@ -308,7 +310,8 @@ func createHandler(r rest.NamedCreater, scope RequestScope, typer runtime.Object
 
 		if admit.Handles(admission.Create) {
 			userInfo, _ := api.UserFrom(ctx)
-			err = admit.Admit(admission.NewAttributesRecord(obj, scope.Kind, namespace, scope.Resource, admission.Create, userInfo))
+
+			err = admit.Admit(admission.NewAttributesRecord(obj, scope.Kind, namespace, name, scope.Resource, scope.Subresource, admission.Create, userInfo))
 			if err != nil {
 				errorJSON(err, scope.Codec, w)
 				return
@@ -378,7 +381,8 @@ func PatchResource(r rest.Patcher, scope RequestScope, typer runtime.ObjectTyper
 		// PATCH requires same permission as UPDATE
 		if admit.Handles(admission.Update) {
 			userInfo, _ := api.UserFrom(ctx)
-			err = admit.Admit(admission.NewAttributesRecord(obj, scope.Kind, namespace, scope.Resource, admission.Update, userInfo))
+
+			err = admit.Admit(admission.NewAttributesRecord(obj, scope.Kind, namespace, name, scope.Resource, scope.Subresource, admission.Update, userInfo))
 			if err != nil {
 				errorJSON(err, scope.Codec, w)
 				return
@@ -465,7 +469,7 @@ func UpdateResource(r rest.Updater, scope RequestScope, typer runtime.ObjectType
 		}
 
 		obj := r.New()
-		if err := scope.Codec.DecodeInto(body, obj); err != nil {
+		if err := scope.Codec.DecodeIntoWithSpecifiedVersionKind(body, obj, scope.APIVersion, scope.Kind); err != nil {
 			err = transformDecodeError(typer, err, obj, body)
 			errorJSON(err, scope.Codec, w)
 			return
@@ -478,7 +482,8 @@ func UpdateResource(r rest.Updater, scope RequestScope, typer runtime.ObjectType
 
 		if admit.Handles(admission.Update) {
 			userInfo, _ := api.UserFrom(ctx)
-			err = admit.Admit(admission.NewAttributesRecord(obj, scope.Kind, namespace, scope.Resource, admission.Update, userInfo))
+
+			err = admit.Admit(admission.NewAttributesRecord(obj, scope.Kind, namespace, name, scope.Resource, scope.Subresource, admission.Update, userInfo))
 			if err != nil {
 				errorJSON(err, scope.Codec, w)
 				return
@@ -542,7 +547,8 @@ func DeleteResource(r rest.GracefulDeleter, checkBody bool, scope RequestScope, 
 
 		if admit.Handles(admission.Delete) {
 			userInfo, _ := api.UserFrom(ctx)
-			err = admit.Admit(admission.NewAttributesRecord(nil, scope.Kind, namespace, scope.Resource, admission.Delete, userInfo))
+
+			err = admit.Admit(admission.NewAttributesRecord(nil, scope.Kind, namespace, name, scope.Resource, scope.Subresource, admission.Delete, userInfo))
 			if err != nil {
 				errorJSON(err, scope.Codec, w)
 				return

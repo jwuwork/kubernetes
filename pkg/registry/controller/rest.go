@@ -21,13 +21,13 @@ import (
 	"reflect"
 	"strconv"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/validation"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/registry/generic"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util/fielderrors"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/validation"
+	"k8s.io/kubernetes/pkg/fields"
+	"k8s.io/kubernetes/pkg/labels"
+	"k8s.io/kubernetes/pkg/registry/generic"
+	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/util/fielderrors"
 )
 
 // rcStrategy implements verification logic for Replication Controllers.
@@ -95,6 +95,10 @@ func (rcStrategy) ValidateUpdate(ctx api.Context, obj, old runtime.Object) field
 	validationErrorList := validation.ValidateReplicationController(obj.(*api.ReplicationController))
 	updateErrorList := validation.ValidateReplicationControllerUpdate(old.(*api.ReplicationController), obj.(*api.ReplicationController))
 	return append(validationErrorList, updateErrorList...)
+}
+
+func (rcStrategy) AllowUnconditionalUpdate() bool {
+	return true
 }
 
 // ControllerToSelectableFields returns a label set that represents the object.

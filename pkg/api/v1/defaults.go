@@ -19,8 +19,8 @@ package v1
 import (
 	"strings"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/util"
 )
 
 func addDefaultingFuncs() {
@@ -42,6 +42,21 @@ func addDefaultingFuncs() {
 			if obj.Spec.Replicas == nil {
 				obj.Spec.Replicas = new(int)
 				*obj.Spec.Replicas = 1
+			}
+		},
+		func(obj *Daemon) {
+			var labels map[string]string
+			if obj.Spec.Template != nil {
+				labels = obj.Spec.Template.Labels
+			}
+			// TODO: support templates defined elsewhere when we support them in the API
+			if labels != nil {
+				if len(obj.Spec.Selector) == 0 {
+					obj.Spec.Selector = labels
+				}
+				if len(obj.Labels) == 0 {
+					obj.Labels = labels
+				}
 			}
 		},
 		func(obj *Volume) {
@@ -98,6 +113,10 @@ func addDefaultingFuncs() {
 			if obj.HostNetwork {
 				defaultHostNetworkPorts(&obj.Containers)
 			}
+			if obj.TerminationGracePeriodSeconds == nil {
+				period := int64(DefaultTerminationGracePeriodSeconds)
+				obj.TerminationGracePeriodSeconds = &period
+			}
 		},
 		func(obj *Probe) {
 			if obj.TimeoutSeconds == 0 {
@@ -137,6 +156,9 @@ func addDefaultingFuncs() {
 			if obj.Path == "" {
 				obj.Path = "/"
 			}
+			if obj.Scheme == "" {
+				obj.Scheme = URISchemeHTTP
+			}
 		},
 		func(obj *NamespaceStatus) {
 			if obj.Phase == "" {
@@ -151,6 +173,19 @@ func addDefaultingFuncs() {
 		func(obj *ObjectFieldSelector) {
 			if obj.APIVersion == "" {
 				obj.APIVersion = "v1"
+			}
+		},
+		func(obj *ResourceRequirements) {
+			// Set requests to limits if requests are not specified (but limits are).
+			if obj.Limits != nil {
+				if obj.Requests == nil {
+					obj.Requests = make(ResourceList)
+				}
+				for key, value := range obj.Limits {
+					if _, exists := obj.Requests[key]; !exists {
+						obj.Requests[key] = *(value.Copy())
+					}
+				}
 			}
 		},
 	)

@@ -22,12 +22,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/testapi"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/validation"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/kubelet"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/securitycontext"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/testapi"
+	"k8s.io/kubernetes/pkg/api/validation"
+	"k8s.io/kubernetes/pkg/kubelet"
+	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/securitycontext"
 )
 
 func TestExtractFromNonExistentFile(t *testing.T) {
@@ -69,6 +69,7 @@ func writeTestFile(t *testing.T, dir, name string, contents string) *os.File {
 
 func TestReadPodsFromFile(t *testing.T) {
 	hostname := "random-test-hostname"
+	grace := int64(30)
 	var testCases = []struct {
 		desc     string
 		pod      runtime.Object
@@ -98,44 +99,10 @@ func TestReadPodsFromFile(t *testing.T) {
 					SelfLink:  getSelfLink("test-"+hostname, "mynamespace"),
 				},
 				Spec: api.PodSpec{
-					NodeName:      hostname,
-					RestartPolicy: api.RestartPolicyAlways,
-					DNSPolicy:     api.DNSClusterFirst,
-					Containers: []api.Container{{
-						Name:  "image",
-						Image: "test/image",
-						TerminationMessagePath: "/dev/termination-log",
-						ImagePullPolicy:        "IfNotPresent",
-						SecurityContext:        securitycontext.ValidSecurityContextWithContainerDefaults()}},
-				},
-			}),
-		},
-		{
-			desc: "Pod without ID",
-			pod: &api.Pod{
-				TypeMeta: api.TypeMeta{
-					Kind:       "Pod",
-					APIVersion: "",
-				},
-				ObjectMeta: api.ObjectMeta{
-					// No name
-					UID: "12345",
-				},
-				Spec: api.PodSpec{
-					Containers: []api.Container{{Name: "image", Image: "test/image", SecurityContext: securitycontext.ValidSecurityContextWithContainerDefaults()}},
-				},
-			},
-			expected: CreatePodUpdate(kubelet.SET, kubelet.FileSource, &api.Pod{
-				ObjectMeta: api.ObjectMeta{
-					Name:      "12345-" + hostname,
-					UID:       "12345",
-					Namespace: kubelet.NamespaceDefault,
-					SelfLink:  getSelfLink("12345-"+hostname, kubelet.NamespaceDefault),
-				},
-				Spec: api.PodSpec{
-					NodeName:      hostname,
-					RestartPolicy: api.RestartPolicyAlways,
-					DNSPolicy:     api.DNSClusterFirst,
+					NodeName:                      hostname,
+					RestartPolicy:                 api.RestartPolicyAlways,
+					DNSPolicy:                     api.DNSClusterFirst,
+					TerminationGracePeriodSeconds: &grace,
 					Containers: []api.Container{{
 						Name:  "image",
 						Image: "test/image",
@@ -152,7 +119,7 @@ func TestReadPodsFromFile(t *testing.T) {
 			var versionedPod runtime.Object
 			err := testapi.Converter().Convert(&testCase.pod, &versionedPod)
 			if err != nil {
-				t.Fatalf("error in versioning the pod: %s", testCase.desc, err)
+				t.Fatalf("%s: error in versioning the pod: %v", testCase.desc, err)
 			}
 			fileContents, err := testapi.Codec().Encode(versionedPod)
 			if err != nil {

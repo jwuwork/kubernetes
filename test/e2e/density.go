@@ -20,20 +20,21 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/client"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/client/cache"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/controller/framework"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/watch"
+	"k8s.io/kubernetes/pkg/api"
+	client "k8s.io/kubernetes/pkg/client/unversioned"
+	"k8s.io/kubernetes/pkg/client/unversioned/cache"
+	"k8s.io/kubernetes/pkg/controller/framework"
+	"k8s.io/kubernetes/pkg/fields"
+	"k8s.io/kubernetes/pkg/labels"
+	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/util"
+	"k8s.io/kubernetes/pkg/watch"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -41,6 +42,9 @@ import (
 
 // NodeStartupThreshold is a rough estimate of the time allocated for a pod to start on a node.
 const NodeStartupThreshold = 4 * time.Second
+
+// Maximum container failures this test tolerates before failing.
+var MaxContainerFailures = 0
 
 // podLatencyData encapsulates pod startup latency information.
 type podLatencyData struct {
@@ -66,6 +70,20 @@ func printLatencies(latencies []podLatencyData, header string) {
 	Logf("perc50: %v, perc90: %v, perc99: %v", perc50, perc90, perc99)
 }
 
+// List nodes via gcloud. We don't rely on the apiserver because we really want the node ips
+// and sometimes the node controller is slow to populate them.
+func gcloudListNodes() {
+	Logf("Listing nodes via gcloud:")
+	output, err := exec.Command("gcloud", "compute", "instances", "list",
+		"--project="+testContext.CloudConfig.ProjectID, "--zone="+testContext.CloudConfig.Zone).CombinedOutput()
+	if err != nil {
+		Logf("Failed to list nodes: %v", err)
+		return
+	}
+	Logf(string(output))
+	return
+}
+
 // This test suite can take a long time to run, so by default it is added to
 // the ginkgo.skip list (see driver.go).
 // To run this suite you must explicitly ask for it by setting the
@@ -86,18 +104,22 @@ var _ = Describe("Density", func() {
 		expectNoError(err)
 		minionCount = len(minions.Items)
 		Expect(minionCount).NotTo(BeZero())
+
+		// Terminating a namespace (deleting the remaining objects from it - which
+		// generally means events) can affect the current run. Thus we wait for all
+		// terminating namespace to be finally deleted before starting this test.
+		err = deleteTestingNS(c)
+		expectNoError(err)
+
 		nsForTesting, err := createTestingNS("density", c)
 		ns = nsForTesting.Name
 		expectNoError(err)
 		uuid = string(util.NewUUID())
 
-		// Print latency metrics before the test.
-		// TODO: Remove this once we reset metrics before the test.
-		_, err = HighLatencyRequests(c, 3*time.Second, util.NewStringSet("events"))
-		expectNoError(err)
-
+		expectNoError(resetMetrics(c))
 		expectNoError(os.Mkdir(fmt.Sprintf(testContext.OutputDir+"/%s", uuid), 0777))
 		expectNoError(writePerfData(c, fmt.Sprintf(testContext.OutputDir+"/%s", uuid), "before"))
+		gcloudListNodes()
 	})
 
 	AfterEach(func() {
@@ -149,7 +171,7 @@ var _ = Describe("Density", func() {
 		// TODO: Reenable once we can measure latency only from a single test.
 		// TODO: Expose runLatencyTest as ginkgo flag.
 		{podsPerMinion: 3, skip: true, runLatencyTest: false, interval: 10 * time.Second},
-		{podsPerMinion: 30, skip: true, runLatencyTest: false, interval: 10 * time.Second},
+		{podsPerMinion: 30, skip: true, runLatencyTest: true, interval: 10 * time.Second},
 		// More than 30 pods per node is outside our v1.0 goals.
 		// We might want to enable those tests in the future.
 		{podsPerMinion: 50, skip: true, runLatencyTest: false, interval: 10 * time.Second},
@@ -158,7 +180,7 @@ var _ = Describe("Density", func() {
 
 	for _, testArg := range densityTests {
 		name := fmt.Sprintf("should allow starting %d pods per node", testArg.podsPerMinion)
-		if testArg.podsPerMinion <= 30 {
+		if testArg.podsPerMinion == 30 {
 			name = "[Performance suite] " + name
 		}
 		if testArg.skip {
@@ -171,14 +193,14 @@ var _ = Describe("Density", func() {
 			fileHndl, err := os.Create(fmt.Sprintf(testContext.OutputDir+"/%s/pod_states.csv", uuid))
 			expectNoError(err)
 			defer fileHndl.Close()
-
 			config := RCConfig{Client: c,
-				Image:         "gcr.io/google_containers/pause:go",
-				Name:          RCName,
-				Namespace:     ns,
-				PollInterval:  itArg.interval,
-				PodStatusFile: fileHndl,
-				Replicas:      totalPods,
+				Image:                "gcr.io/google_containers/pause:go",
+				Name:                 RCName,
+				Namespace:            ns,
+				PollInterval:         itArg.interval,
+				PodStatusFile:        fileHndl,
+				Replicas:             totalPods,
+				MaxContainerFailures: &MaxContainerFailures,
 			}
 
 			// Create a listener for events.

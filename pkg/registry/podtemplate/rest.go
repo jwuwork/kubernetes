@@ -19,13 +19,13 @@ package podtemplate
 import (
 	"fmt"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/validation"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/registry/generic"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
-	errs "github.com/GoogleCloudPlatform/kubernetes/pkg/util/fielderrors"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/validation"
+	"k8s.io/kubernetes/pkg/fields"
+	"k8s.io/kubernetes/pkg/labels"
+	"k8s.io/kubernetes/pkg/registry/generic"
+	"k8s.io/kubernetes/pkg/runtime"
+	errs "k8s.io/kubernetes/pkg/util/fielderrors"
 )
 
 // podTemplateStrategy implements behavior for PodTemplates
@@ -67,6 +67,10 @@ func (podTemplateStrategy) PrepareForUpdate(obj, old runtime.Object) {
 // ValidateUpdate is the default update validation for an end user.
 func (podTemplateStrategy) ValidateUpdate(ctx api.Context, obj, old runtime.Object) errs.ValidationErrorList {
 	return validation.ValidatePodTemplateUpdate(obj.(*api.PodTemplate), old.(*api.PodTemplate))
+}
+
+func (podTemplateStrategy) AllowUnconditionalUpdate() bool {
+	return true
 }
 
 // MatchPodTemplate returns a generic matcher for a given label and field selector.

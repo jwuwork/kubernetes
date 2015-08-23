@@ -21,10 +21,12 @@ import (
 	"sort"
 )
 
-type empty struct{}
+// Empty is public since it is used by some internal API objects for conversions between external
+// string arrays and internal sets, and conversion logic requires public types today.
+type Empty struct{}
 
 // StringSet is a set of strings, implemented via map[string]struct{} for minimal memory consumption.
-type StringSet map[string]empty
+type StringSet map[string]Empty
 
 // NewStringSet creates a StringSet from a list of values.
 func NewStringSet(items ...string) StringSet {
@@ -48,7 +50,7 @@ func KeySet(theMap reflect.Value) StringSet {
 // Insert adds items to the set.
 func (s StringSet) Insert(items ...string) {
 	for _, item := range items {
-		s[item] = empty{}
+		s[item] = Empty{}
 	}
 }
 
@@ -121,6 +123,21 @@ func (s1 StringSet) Union(s2 StringSet) StringSet {
 
 // IsSuperset returns true iff s1 is a superset of s2.
 func (s1 StringSet) IsSuperset(s2 StringSet) bool {
+	for item := range s2 {
+		if !s1.Has(item) {
+			return false
+		}
+	}
+	return true
+}
+
+// Equal returns true iff s1 is equal (as a set) to s2.
+// Two sets are equal if their membership is identical.
+// (In practice, this means same elements, order doesn't matter)
+func (s1 StringSet) Equal(s2 StringSet) bool {
+	if len(s1) != len(s2) {
+		return false
+	}
 	for item := range s2 {
 		if !s1.Has(item) {
 			return false

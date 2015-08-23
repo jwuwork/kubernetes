@@ -19,8 +19,8 @@ package e2e
 import (
 	"fmt"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/util"
 
 	. "github.com/onsi/ginkgo"
 )
@@ -92,7 +92,7 @@ var _ = Describe("Secrets", func() {
 			},
 		}
 
-		testContainerOutputInNamespace("consume secrets", f.Client, pod, []string{
+		testContainerOutputInNamespace("consume secrets", f.Client, pod, 0, []string{
 			"content of file \"/etc/secret-volume/data-1\": value-1",
 			"mode of file \"/etc/secret-volume/data-1\": -r--r--r--",
 		}, f.Namespace.Name)

@@ -31,7 +31,7 @@ import (
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
+	"k8s.io/kubernetes/pkg/util"
 )
 
 // atomsToAttrs states which attributes of which tags require URL substitution.
@@ -73,6 +73,8 @@ type Transport struct {
 	Scheme      string
 	Host        string
 	PathPrepend string
+
+	http.RoundTripper
 }
 
 // RoundTrip implements the http.RoundTripper interface
@@ -86,7 +88,11 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Header.Set("X-Forwarded-Host", t.Host)
 	req.Header.Set("X-Forwarded-Proto", t.Scheme)
 
-	resp, err := http.DefaultTransport.RoundTrip(req)
+	rt := t.RoundTripper
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
+	resp, err := rt.RoundTrip(req)
 
 	if err != nil {
 		message := fmt.Sprintf("Error: '%s'\nTrying to reach: '%v'", err.Error(), req.URL.String())
@@ -173,7 +179,7 @@ func rewriteHTML(reader io.Reader, writer io.Writer, urlRewriter func(string) st
 	return nil
 }
 
-// rewriteResponse modifies an HTML response by updating absolute links refering
+// rewriteResponse modifies an HTML response by updating absolute links referring
 // to the original host to instead refer to the proxy transport.
 func (t *Transport) rewriteResponse(req *http.Request, resp *http.Response) (*http.Response, error) {
 	origBody := resp.Body

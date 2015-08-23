@@ -19,13 +19,13 @@ package persistentvolumeclaim
 import (
 	"fmt"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/validation"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/registry/generic"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util/fielderrors"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/validation"
+	"k8s.io/kubernetes/pkg/fields"
+	"k8s.io/kubernetes/pkg/labels"
+	"k8s.io/kubernetes/pkg/registry/generic"
+	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/util/fielderrors"
 )
 
 // persistentvolumeclaimStrategy implements behavior for PersistentVolumeClaim objects
@@ -67,6 +67,10 @@ func (persistentvolumeclaimStrategy) PrepareForUpdate(obj, old runtime.Object) {
 func (persistentvolumeclaimStrategy) ValidateUpdate(ctx api.Context, obj, old runtime.Object) fielderrors.ValidationErrorList {
 	errorList := validation.ValidatePersistentVolumeClaim(obj.(*api.PersistentVolumeClaim))
 	return append(errorList, validation.ValidatePersistentVolumeClaimUpdate(obj.(*api.PersistentVolumeClaim), old.(*api.PersistentVolumeClaim))...)
+}
+
+func (persistentvolumeclaimStrategy) AllowUnconditionalUpdate() bool {
+	return true
 }
 
 type persistentvolumeclaimStatusStrategy struct {

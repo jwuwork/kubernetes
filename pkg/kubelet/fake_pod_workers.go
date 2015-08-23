@@ -17,11 +17,9 @@ limitations under the License.
 package kubelet
 
 import (
-	"testing"
-
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	kubecontainer "github.com/GoogleCloudPlatform/kubernetes/pkg/kubelet/container"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/types"
+	"k8s.io/kubernetes/pkg/api"
+	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
+	"k8s.io/kubernetes/pkg/types"
 )
 
 // fakePodWorkers runs sync pod function in serial, so we can have
@@ -29,7 +27,7 @@ import (
 type fakePodWorkers struct {
 	syncPodFn    syncPodFnType
 	runtimeCache kubecontainer.RuntimeCache
-	t            *testing.T
+	t            TestingInterface
 }
 
 func (f *fakePodWorkers) UpdatePod(pod *api.Pod, mirrorPod *api.Pod, updateComplete func()) {
@@ -43,3 +41,7 @@ func (f *fakePodWorkers) UpdatePod(pod *api.Pod, mirrorPod *api.Pod, updateCompl
 }
 
 func (f *fakePodWorkers) ForgetNonExistingPodWorkers(desiredPods map[types.UID]empty) {}
+
+type TestingInterface interface {
+	Errorf(format string, args ...interface{})
+}

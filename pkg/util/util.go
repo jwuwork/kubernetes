@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -198,32 +197,18 @@ func CompileRegexps(regexpStrings []string) ([]*regexp.Regexp, error) {
 	return regexps, nil
 }
 
-// Writes 'value' to /proc/<pid>/oom_score_adj. PID = 0 means self
-func ApplyOomScoreAdj(pid int, value int) error {
-	if value < -1000 || value > 1000 {
-		return fmt.Errorf("invalid value(%d) specified for oom_score_adj. Values must be within the range [-1000, 1000]", value)
-	}
-	if pid < 0 {
-		return fmt.Errorf("invalid PID %d specified for oom_score_adj", pid)
-	}
-
-	var pidStr string
-	if pid == 0 {
-		pidStr = "self"
-	} else {
-		pidStr = strconv.Itoa(pid)
+// Detects if using systemd as the init system
+// Please note that simply reading /proc/1/cmdline can be misleading because
+// some installation of various init programs can automatically make /sbin/init
+// a symlink or even a renamed version of their main program.
+// TODO(dchen1107): realiably detects the init system using on the system:
+// systemd, upstart, initd, etc.
+func UsingSystemdInitSystem() bool {
+	if _, err := os.Stat("/run/systemd/system"); err == nil {
+		return true
 	}
 
-	oom_value, err := ioutil.ReadFile(path.Join("/proc", pidStr, "oom_score_adj"))
-	if err != nil {
-		return fmt.Errorf("failed to read oom_score_adj: %v", err)
-	} else if string(oom_value) != strconv.Itoa(value) {
-		if err := ioutil.WriteFile(path.Join("/proc", pidStr, "oom_score_adj"), []byte(strconv.Itoa(value)), 0700); err != nil {
-			return fmt.Errorf("failed to set oom_score_adj to %d: %v", value, err)
-		}
-	}
-
-	return nil
+	return false
 }
 
 // Tests whether all pointer fields in a struct are nil.  This is useful when,

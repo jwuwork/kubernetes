@@ -19,8 +19,8 @@ package scdeny
 import (
 	"testing"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/admission"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/admission"
+	"k8s.io/kubernetes/pkg/api"
 )
 
 // ensures the SecurityContext is denied if it defines anything more than Caps or Privileged
@@ -44,7 +44,7 @@ func TestAdmission(t *testing.T) {
 	}
 	for k, v := range successCases {
 		pod.Spec.Containers[0].SecurityContext = v
-		err := handler.Admit(admission.NewAttributesRecord(&pod, "Pod", "foo", string(api.ResourcePods), "ignored", nil))
+		err := handler.Admit(admission.NewAttributesRecord(&pod, "Pod", "foo", "name", string(api.ResourcePods), "", "ignored", nil))
 		if err != nil {
 			t.Errorf("Unexpected error returned from admission handler for case %s", k)
 		}
@@ -57,7 +57,7 @@ func TestAdmission(t *testing.T) {
 	}
 	for k, v := range errorCases {
 		pod.Spec.Containers[0].SecurityContext = v
-		err := handler.Admit(admission.NewAttributesRecord(&pod, "Pod", "foo", string(api.ResourcePods), "ignored", nil))
+		err := handler.Admit(admission.NewAttributesRecord(&pod, "Pod", "foo", "name", string(api.ResourcePods), "", "ignored", nil))
 		if err == nil {
 			t.Errorf("Expected error returned from admission handler for case %s", k)
 		}

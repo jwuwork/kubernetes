@@ -29,64 +29,27 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/admission"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	apierrors "github.com/GoogleCloudPlatform/kubernetes/pkg/api/errors"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/latest"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/meta"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/rest"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/healthz"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util/errors"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/util/flushwriter"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/version"
+	"k8s.io/kubernetes/pkg/admission"
+	"k8s.io/kubernetes/pkg/api"
+	apierrors "k8s.io/kubernetes/pkg/api/errors"
+	"k8s.io/kubernetes/pkg/api/latest"
+	"k8s.io/kubernetes/pkg/api/meta"
+	"k8s.io/kubernetes/pkg/api/rest"
+	"k8s.io/kubernetes/pkg/apiserver/metrics"
+	"k8s.io/kubernetes/pkg/healthz"
+	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/util"
+	"k8s.io/kubernetes/pkg/util/errors"
+	"k8s.io/kubernetes/pkg/util/flushwriter"
+	"k8s.io/kubernetes/pkg/version"
 
 	"github.com/emicklei/go-restful"
 	"github.com/golang/glog"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-var (
-	// TODO(a-robinson): Add unit tests for the handling of these metrics once
-	// the upstream library supports it.
-	requestCounter = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "apiserver_request_count",
-			Help: "Counter of apiserver requests broken out for each verb, API resource, client, and HTTP response code.",
-		},
-		[]string{"verb", "resource", "client", "code"},
-	)
-	requestLatencies = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name: "apiserver_request_latencies",
-			Help: "Response latency distribution in microseconds for each verb, resource and client.",
-			// Use buckets ranging from 125 ms to 8 seconds.
-			Buckets: prometheus.ExponentialBuckets(125000, 2.0, 7),
-		},
-		[]string{"verb", "resource"},
-	)
-	requestLatenciesSummary = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name: "apiserver_request_latencies_summary",
-			Help: "Response latency summary in microseconds for each verb and resource.",
-		},
-		[]string{"verb", "resource"},
-	)
-)
-
 func init() {
-	prometheus.MustRegister(requestCounter)
-	prometheus.MustRegister(requestLatencies)
-	prometheus.MustRegister(requestLatenciesSummary)
-}
-
-// monitor is a helper function for each HTTP request handler to use for
-// instrumenting basic request counter and latency metrics.
-func monitor(verb, resource *string, client string, httpCode *int, reqStart time.Time) {
-	requestCounter.WithLabelValues(*verb, *resource, client, strconv.Itoa(*httpCode)).Inc()
-	requestLatencies.WithLabelValues(*verb, *resource).Observe(float64((time.Since(reqStart)) / time.Microsecond))
-	requestLatenciesSummary.WithLabelValues(*verb, *resource).Observe(float64((time.Since(reqStart)) / time.Microsecond))
+	metrics.Register()
 }
 
 // monitorFilter creates a filter that reports the metrics for a given resource and action.
@@ -95,7 +58,7 @@ func monitorFilter(action, resource string) restful.FilterFunction {
 		reqStart := time.Now()
 		chain.ProcessFilter(req, res)
 		httpCode := res.StatusCode()
-		monitor(&action, &resource, util.GetClient(req.Request), &httpCode, reqStart)
+		metrics.Monitor(&action, &resource, util.GetClient(req.Request), &httpCode, reqStart)
 	}
 }
 
@@ -118,7 +81,7 @@ type APIGroupVersion struct {
 
 	// ServerVersion controls the Kubernetes APIVersion used for common objects in the apiserver
 	// schema like api.Status, api.DeleteOptions, and api.ListOptions. Other implementors may
-	// define a version "v1beta1" but want to use the Kubernetes "v1beta3" internal objects. If
+	// define a version "v1beta1" but want to use the Kubernetes "v1" internal objects. If
 	// empty, defaults to Version.
 	ServerVersion string
 
@@ -168,10 +131,13 @@ func (g *APIGroupVersion) InstallREST(container *restful.Container) error {
 
 // TODO: document all handlers
 // InstallSupport registers the APIServer support functions
-func InstallSupport(mux Mux, ws *restful.WebService) {
+func InstallSupport(mux Mux, ws *restful.WebService, enableResettingMetrics bool, checks ...healthz.HealthzChecker) {
 	// TODO: convert healthz and metrics to restful and remove container arg
-	healthz.InstallHandler(mux)
+	healthz.InstallHandler(mux, checks...)
 	mux.Handle("/metrics", prometheus.Handler())
+	if enableResettingMetrics {
+		mux.HandleFunc("/resetMetrics", metrics.Reset)
+	}
 
 	// Set up a service to return the git code version.
 	ws.Path("/version")

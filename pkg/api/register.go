@@ -17,7 +17,7 @@ limitations under the License.
 package api
 
 import (
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/runtime"
 )
 
 // Scheme is the default instance of runtime.Scheme to which types in the Kubernetes API are already registered.
@@ -32,6 +32,8 @@ func init() {
 		&PodTemplateList{},
 		&ReplicationControllerList{},
 		&ReplicationController{},
+		&DaemonList{},
+		&Daemon{},
 		&ServiceList{},
 		&Service{},
 		&NodeList{},
@@ -42,8 +44,6 @@ func init() {
 		&Binding{},
 		&Event{},
 		&EventList{},
-		&ContainerManifest{},
-		&ContainerManifestList{},
 		&List{},
 		&LimitRange{},
 		&LimitRangeList{},
@@ -61,6 +61,7 @@ func init() {
 		&PersistentVolumeClaimList{},
 		&DeleteOptions{},
 		&ListOptions{},
+		&PodAttachOptions{},
 		&PodLogOptions{},
 		&PodExecOptions{},
 		&PodProxyOptions{},
@@ -68,6 +69,9 @@ func init() {
 		&ComponentStatusList{},
 		&SerializedReference{},
 		&RangeAllocation{},
+		&ThirdPartyResource{},
+		&ThirdPartyResourceList{},
+		&ThirdPartyResourceData{},
 	)
 	// Legacy names are supported
 	Scheme.AddKnownTypeWithName("", "Minion", &Node{})
@@ -81,6 +85,8 @@ func (*PodTemplate) IsAnAPIObject()               {}
 func (*PodTemplateList) IsAnAPIObject()           {}
 func (*ReplicationController) IsAnAPIObject()     {}
 func (*ReplicationControllerList) IsAnAPIObject() {}
+func (*Daemon) IsAnAPIObject()                    {}
+func (*DaemonList) IsAnAPIObject()                {}
 func (*Service) IsAnAPIObject()                   {}
 func (*ServiceList) IsAnAPIObject()               {}
 func (*Endpoints) IsAnAPIObject()                 {}
@@ -91,8 +97,6 @@ func (*Binding) IsAnAPIObject()                   {}
 func (*Status) IsAnAPIObject()                    {}
 func (*Event) IsAnAPIObject()                     {}
 func (*EventList) IsAnAPIObject()                 {}
-func (*ContainerManifest) IsAnAPIObject()         {}
-func (*ContainerManifestList) IsAnAPIObject()     {}
 func (*List) IsAnAPIObject()                      {}
 func (*LimitRange) IsAnAPIObject()                {}
 func (*LimitRangeList) IsAnAPIObject()            {}
@@ -110,6 +114,7 @@ func (*PersistentVolumeClaim) IsAnAPIObject()     {}
 func (*PersistentVolumeClaimList) IsAnAPIObject() {}
 func (*DeleteOptions) IsAnAPIObject()             {}
 func (*ListOptions) IsAnAPIObject()               {}
+func (*PodAttachOptions) IsAnAPIObject()          {}
 func (*PodLogOptions) IsAnAPIObject()             {}
 func (*PodExecOptions) IsAnAPIObject()            {}
 func (*PodProxyOptions) IsAnAPIObject()           {}
@@ -117,3 +122,6 @@ func (*ComponentStatus) IsAnAPIObject()           {}
 func (*ComponentStatusList) IsAnAPIObject()       {}
 func (*SerializedReference) IsAnAPIObject()       {}
 func (*RangeAllocation) IsAnAPIObject()           {}
+func (*ThirdPartyResource) IsAnAPIObject()        {}
+func (*ThirdPartyResourceList) IsAnAPIObject()    {}
+func (*ThirdPartyResourceData) IsAnAPIObject()    {}

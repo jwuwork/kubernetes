@@ -19,18 +19,16 @@ package etcd
 import (
 	"testing"
 
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/rest/resttest"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/testapi"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/tools"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/tools/etcdtest"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/rest/resttest"
+	"k8s.io/kubernetes/pkg/registry/registrytest"
+	"k8s.io/kubernetes/pkg/tools"
+	"k8s.io/kubernetes/pkg/tools/etcdtest"
 )
 
-func newHelper(t *testing.T) (*tools.FakeEtcdClient, tools.EtcdHelper) {
-	fakeEtcdClient := tools.NewFakeEtcdClient(t)
-	fakeEtcdClient.TestIndex = true
-	helper := tools.NewEtcdHelper(fakeEtcdClient, testapi.Codec(), etcdtest.PathPrefix())
-	return fakeEtcdClient, helper
+func newStorage(t *testing.T) (*REST, *tools.FakeEtcdClient) {
+	etcdStorage, fakeClient := registrytest.NewEtcdStorage(t)
+	return NewREST(etcdStorage), fakeClient
 }
 
 func validNewPodTemplate(name string) *api.PodTemplate {
@@ -61,9 +59,8 @@ func validNewPodTemplate(name string) *api.PodTemplate {
 }
 
 func TestCreate(t *testing.T) {
-	fakeEtcdClient, helper := newHelper(t)
-	storage := NewREST(helper)
-	test := resttest.New(t, storage, fakeEtcdClient.SetError)
+	storage, fakeClient := newStorage(t)
+	test := resttest.New(t, storage, fakeClient.SetError)
 	pod := validNewPodTemplate("foo")
 	pod.ObjectMeta = api.ObjectMeta{}
 	test.TestCreate(
@@ -77,17 +74,16 @@ func TestCreate(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
-	fakeEtcdClient, helper := newHelper(t)
-	storage := NewREST(helper)
-	test := resttest.New(t, storage, fakeEtcdClient.SetError)
+	storage, fakeClient := newStorage(t)
+	test := resttest.New(t, storage, fakeClient.SetError)
 	key, err := storage.KeyFunc(test.TestContext(), "foo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	key = etcdtest.AddPrefix(key)
 
-	fakeEtcdClient.ExpectNotFoundGet(key)
-	fakeEtcdClient.ChangeIndex = 2
+	fakeClient.ExpectNotFoundGet(key)
+	fakeClient.ChangeIndex = 2
 	pod := validNewPodTemplate("foo")
 	existing := validNewPodTemplate("exists")
 	existing.Namespace = test.TestNamespace()
